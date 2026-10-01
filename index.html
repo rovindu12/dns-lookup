@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- The page only needs its own files plus the two DNS-over-HTTPS resolvers. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://dns.google https://cloudflare-dns.com https://www.cloudflare.com https://ipv4.icanhazip.com https://ipv6.icanhazip.com; base-uri 'none'; form-action 'none'">
+  <title>Bulk DNS Lookup</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Bulk DNS Lookup</h1>
+      <p>Paste as many site URLs or domains as you like, one per line or separated by commas, and get their DNS records.<span data-local-only hidden> Add your own DNS servers and proxies to compare what each one returns.</span><span data-hosted-only hidden> Add your own DNS servers to compare what each one returns.</span></p>
+    </header>
+
+    <section class="card connection" id="connection" aria-live="polite">
+      <div class="card-head">
+        <h2>Your connection</h2>
+        <span class="source" id="conn-source"></span>
+        <span class="conn-actions">
+          <button type="button" id="conn-copy" class="secondary" disabled>Copy</button>
+          <button type="button" id="conn-recheck" class="secondary">Recheck</button>
+        </span>
+      </div>
+      <div class="conn-body" id="conn-body"><p class="muted">Checking…</p></div>
+    </section>
+
+    <p class="local-hint" id="local-hint" hidden>
+      This page can't reach the local server, so the <strong>DNS servers</strong> and <strong>Proxies</strong> boxes are hidden.
+      Start it with <code>./start.sh</code> (or <code>node server.js</code>) in the project folder, then open
+      <a href="http://127.0.0.1:8765">http://127.0.0.1:8765</a>.
+    </p>
+
+    <form id="form">
+      <div class="field">
+        <label for="input">Sites</label>
+        <textarea id="input" rows="7" spellcheck="false" autocomplete="off"
+          placeholder="https://www.example.com/some/page&#10;github.com&#10;openai.com, anthropic.com"></textarea>
+      </div>
+
+      <div class="field api-key-field" id="apikey-field" data-hosted-only hidden>
+        <label for="apikey">API key <span class="hint">optional — raises the daily limit</span></label>
+        <input type="text" id="apikey" spellcheck="false" autocomplete="off" placeholder="dnslk_…">
+        <p class="hint">
+          The hosted lookup is free for 10 checks a day, tracked by your IP address. Paste a key from the
+          <a href="/pricing.html">Pro plan</a> here for 1000 a day instead; it's kept only in this browser
+          (saved to local storage, sent as an <code>X-API-Key</code> header) and never in the page's exports.
+        </p>
+      </div>
+
+      <div class="field" id="dns-field" hidden>
+        <label for="dns">DNS servers <span class="hint">optional</span></label>
+        <textarea id="dns" rows="4" spellcheck="false" autocomplete="off"
+          placeholder="8.8.8.8&#10;1.1.1.1 Cloudflare&#10;9.9.9.9&#10;192.0.2.53:5353"></textarea>
+        <p class="hint">
+          One per line, as an IP address with a name if you like: <code>8.8.8.8</code>,
+          <code>1.1.1.1 Cloudflare</code>, <code>2001:4860:4860::8888</code>. Every site is asked of every server
+          directly over the DNS protocol, so you see what each server really returns, with its status, flags and
+          response time. A and AAAA records only; the resolver below is then used only for the IP details.
+          <span data-local-only hidden>This runs on your machine through the local server, so you can also add a port
+          (<code>192.0.2.53:5353</code>) and query private or LAN DNS servers.</span>
+          <span data-hosted-only hidden>This runs from this site's servers (<span id="hosted-region">in the cloud</span>),
+          not from your network, so response times and location-based answers reflect that place. Only public IP
+          addresses on port 53 work, up to 5 servers per lookup. For private servers, other ports or proxies, run the
+          local version.</span>
+        </p>
+      </div>
+
+      <p class="local-hint" id="proxy-unavailable-hint" data-hosted-only hidden>
+        <strong>Proxies</strong> aren't available on this site. Checking a proxy means connecting to whatever
+        address you give it and relaying traffic through it — safe to do from your own machine, but not from a
+        public server that anyone could point at anything. Run this tool locally to use it: open a terminal in
+        the project folder and run <code>./start.sh</code> (or <code>node server.js</code>), then open
+        <code>http://127.0.0.1:8765</code>. That gets you the Proxies box (exit IP, location, ISP, WHOIS, and the
+        DNS servers each proxy uses) plus private/LAN DNS servers and any port.
+      </p>
+
+      <div class="field" id="proxy-field" hidden>
+        <label for="proxies">Proxies <span class="hint">optional</span></label>
+        <textarea id="proxies" rows="5" spellcheck="false" autocomplete="off"
+          placeholder="203.0.113.10:8080&#10;user:pass@198.51.100.7:3128&#10;socks5://192.0.2.5:1080&#10;192.0.2.9:8000:user:pass"></textarea>
+        <p class="hint" id="proxy-hint">
+          One per line: <code>host:port</code>, <code>user:pass@host:port</code>, <code>host:port:user:pass</code>, or with a
+          <code>http://</code>, <code>https://</code> or <code>socks5://</code> prefix. The lookups then run from each
+          proxy's network. With DNS servers listed, queries travel over TCP inside the tunnel: SOCKS5 proxies usually
+          allow that, HTTP proxies often only allow port 443 and will show as refused. Without DNS servers, the
+          selected resolver is queried through each proxy; choose Google to compare locations, because it passes the
+          proxy's network on to each domain's DNS servers.
+        </p>
+        <label class="check"><input type="checkbox" id="resolvers" checked> Also find the DNS servers each proxy uses</label>
+        <p class="hint">
+          Each proxy is asked to look up 16 unique test names, and the public test service bash.ws reports which DNS
+          servers asked, so this contacts bash.ws. This finds DNS servers that actually answered during the check; a
+          residential ISP's full resolver pool is often larger, and a longer real browsing session can surface more
+          of it. Once a proxy's exit IP is known, its location, ISP and network registry are also looked up (from
+          <code>ip-api.com</code> and the RDAP WHOIS system) — free-tier geolocation, so city-level placement is a
+          rough estimate from the network's registered address, not a physical trace. The sites box is optional:
+          leave it empty to check only the proxies (their addresses, exit IPs, location and DNS servers).
+        </p>
+        <p class="hint">
+          Each proxy row also gets a <strong>changes IP</strong> / <strong>no change</strong> pill (compares the
+          proxy's exit IP against this computer's own direct connection, shown below the table) and, when set,
+          whether the proxy itself is going through <strong>Cloudflare WARP</strong> — the same two signals "Your
+          connection" shows for your browser, run here from the server's side for each proxy instead.
+        </p>
+        <p class="hint">
+          This cannot show a proxy's <strong>WebRTC leak</strong>, <strong>browser or TCP/TLS fingerprint</strong>
+          (OS, JA3/JA4, HTTP headers) or <strong>browser language</strong>. Those all come from a real browser's own
+          network stack opening a connection at the OS level — WebRTC in particular does not travel through an
+          HTTP/SOCKS proxy at all, so there is nothing a proxy-mediated request could show for it. This checker asks
+          the proxy itself to make each connection instead, which is a different mechanism; showing browser-only
+          data here would describe this computer, not the proxy, so none is shown. To see that data for a proxy,
+          the browser or operating system itself would need to be configured to use it as its own network
+          connection, then visit a fingerprinting site directly.
+        </p>
+      </div>
+
+      <div class="options">
+        <fieldset id="types">
+          <legend>Record types</legend>
+          <label><input type="checkbox" name="type" value="A" checked> A</label>
+          <label><input type="checkbox" name="type" value="AAAA" checked> AAAA</label>
+          <label><input type="checkbox" name="type" value="CNAME" checked> CNAME</label>
+          <label><input type="checkbox" name="type" value="MX" checked> MX</label>
+          <label><input type="checkbox" name="type" value="NS" checked> NS</label>
+          <label><input type="checkbox" name="type" value="TXT" checked> TXT</label>
+          <label><input type="checkbox" name="type" value="SOA"> SOA</label>
+          <label><input type="checkbox" name="type" value="CAA"> CAA</label>
+        </fieldset>
+
+        <label class="resolver">Resolver
+          <select id="resolver">
+            <option value="cloudflare">Cloudflare (1.1.1.1)</option>
+            <option value="google">Google (8.8.8.8)</option>
+          </select>
+        </label>
+
+        <label class="check"><input type="checkbox" id="details" checked> Show IP details (reverse DNS and network owner)</label>
+      </div>
+
+      <div class="actions">
+        <button type="submit" id="go">Look up DNS</button>
+        <button type="button" id="stop" class="secondary" hidden>Stop</button>
+        <span id="summary" role="status"></span>
+      </div>
+      <p id="notice" role="alert" hidden></p>
+    </form>
+
+    <div id="toolbar" hidden>
+      <button type="button" id="copy" class="secondary">Copy CSV</button>
+      <button type="button" id="csv" class="secondary">Download CSV</button>
+      <button type="button" id="json" class="secondary">Download JSON</button>
+    </div>
+
+    <section id="results" aria-live="polite"></section>
+
+    <footer>
+      Lookups run in your browser through DNS-over-HTTPS, so the domains you enter are sent to the resolver you pick.
+      IP details are two more DNS lookups per address to that resolver: reverse DNS, and the network owner from Team
+      Cymru's IP-to-ASN mapping (the prefix's registry country, not a physical location).<span data-local-only hidden>
+      DNS servers you list are queried by your local server directly, and proxies carry those queries or the resolver's
+      from their own network, so answers reflect that location. Proxy credentials stay on your machine and are never
+      shown or exported. To find a proxy's DNS servers, your local server makes each proxy look up random test names
+      and asks the public test service bash.ws which DNS servers asked; bash.ws never sees your sites. A proxy's exit
+      IP is also looked up at ip-api.com (location, ISP, usage type) and in the RDAP WHOIS system (registry, network
+      name and range) — both public lookups of an address already known from the proxy, not sent through it.</span><span data-hosted-only hidden>
+      The domains and DNS server addresses you enter are also sent to this site's server function, which runs those
+      lookups; it only sends DNS queries and never connects to private or local addresses.</span>
+      The connection panel asks this site's server which address your request came from (or Cloudflare when this page is not on the hosted site), asks Cloudflare (icanhazip.com) for your IPv4 and IPv6 addresses, and asks Cloudflare's STUN server to test whether WebRTC exposes another address. Answers come from caching resolvers, so a TTL is the time left in the cache (at most the zone's TTL), and
+      load-balanced names can return different addresses from one query to the next.
+    </footer>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

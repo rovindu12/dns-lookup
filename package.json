@@ -1,0 +1,12 @@
+{
+  "name": "dns-lookup",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bulk DNS lookup with your own DNS servers, proxies and IP details",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Pricing — Bulk DNS Lookup</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Pricing</h1>
+      <p>The hosted DNS lookup works free, with a daily limit. An API key raises that limit, for scripts,
+        monitoring, or checking a lot of domains in one day. <a href="/">Back to the lookup tool</a>.</p>
+    </header>
+
+    <section class="plans">
+      <div class="card plan">
+        <div class="card-head"><h2>Free</h2></div>
+        <div class="plan-body">
+          <p class="price">$0</p>
+          <ul>
+            <li>10 checks per day</li>
+            <li>No account or API key needed</li>
+            <li>Tracked by IP address</li>
+          </ul>
+          <p class="hint">This is what you get just by using the site.</p>
+        </div>
+      </div>
+
+      <div class="card plan">
+        <div class="card-head"><h2>Pro</h2></div>
+        <div class="plan-body">
+          <p class="price">Subscription <span class="hint">billed monthly, cancel anytime</span></p>
+          <ul>
+            <li>1000 checks per day</li>
+            <li>An API key you use from the site or your own scripts</li>
+            <li>Cancel anytime from the email receipt Stripe sends you</li>
+          </ul>
+          <form id="checkout-form">
+            <div class="field">
+              <label for="email">Email <span class="hint">for your receipt</span></label>
+              <input type="email" id="email" name="email" autocomplete="email" placeholder="you@example.com" required>
+            </div>
+            <div class="actions">
+              <button type="submit" id="subscribe">Subscribe</button>
+              <span id="checkout-status" role="status"></span>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="key-card" hidden>
+      <div class="card-head"><h2>Your API key</h2></div>
+      <div class="plan-body">
+        <p>Payment went through. Here's your key — <strong>save it now, it won't be shown again</strong>:</p>
+        <p class="key-reveal"><code id="key-value"></code>
+          <button type="button" id="key-copy" class="secondary">Copy</button></p>
+        <p class="hint">
+          Use it from this site by pasting it into the <strong>API key</strong> field above the Sites box on the
+          <a href="/">lookup page</a>, or send it yourself as an <code>X-API-Key</code> header on requests to
+          <code>/api/dns</code>.
+        </p>
+      </div>
+    </section>
+    <p class="local-hint" id="key-pending" hidden>
+      Payment is still being confirmed. This refreshes automatically — if nothing appears within a minute,
+      reload this page (keep the <code>session_id</code> in the address bar).
+    </p>
+    <p id="key-error" role="alert" hidden></p>
+
+    <footer>
+      Card details are entered on Stripe's own checkout page, never on this site. Subscribing creates an API
+      key stored here only as a salted hash; the plaintext key is shown once, right after payment, and never
+      again. Canceling later (from Stripe's receipt email or customer portal) deactivates the key the same day.
+    </footer>
+  </main>
+  <script src="pricing.js"></script>
+</body>
+</html>

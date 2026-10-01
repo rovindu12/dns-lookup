@@ -1,0 +1,7 @@
+{
+  "name": "dns-lookup-functions",
+  "private": true,
+  "dependencies": {
+    "@netlify/blobs": "^8.2.0"
+  }
+}
