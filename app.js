@@ -574,7 +574,10 @@ function handleServerEvent(run, bySite, event) {
       resolvers: run.wantResolvers && !v.error ? undefined : null, // its DNS servers; undefined while being found
       geo: undefined, whois: undefined, // public geolocation/WHOIS for the exit IP; undefined while being found
     }));
-    run.targets = event.targets.map((t) => ({ label: t.label, name: t.name, error: t.error }));
+    run.targets = event.targets.map((t) => ({
+      label: t.label, name: t.name, error: t.error,
+      geo: t.error ? null : undefined, // this server's own public location/ISP; undefined while being found
+    }));
     results.append(
       ...(run.viaProxies ? [run.proxyCard] : []),
       ...(run.dnsList ? [run.dnsCard] : []),
@@ -606,6 +609,9 @@ function handleServerEvent(run, bySite, event) {
   } else if (event.event === 'geoinfo') {
     Object.assign(run.vantages[event.p], { geo: event.geo, whois: event.whois, geoError: event.error ?? null });
     renderServerRun(run);
+  } else if (event.event === 'targetgeo') {
+    Object.assign(run.targets[event.t], { geo: event.ok ? event.geo : null, geoError: event.ok ? null : event.error });
+    renderServerRun(run);
   } else if (event.event === 'result') {
     const site = bySite.get(event.host);
     site.cells.set(`${event.p}|${event.t}|${event.type}`, event);
@@ -616,7 +622,12 @@ function handleServerEvent(run, bySite, event) {
   }
 }
 
-const serverLine = (server) => [server.country, server.org].filter(Boolean).join(' · ');
+// bash.ws gives every server a country/org; when the extra geolocation lookup also succeeded, show the
+// city too — same degrade-gracefully pattern as the rest of the app when that lookup fails or is skipped.
+const serverLine = (server) => {
+  const place = server.city ? [server.city, server.region, server.country].filter(Boolean).join(', ') : server.country;
+  return [place, server.isp ?? server.org].filter(Boolean).join(' · ');
+};
 
 // The DNS servers a proxy uses, as found by having it look up test names. If any is also one of this
 // computer's own, say so: it usually means the proxy is not resolving on its own network.
@@ -715,6 +726,15 @@ function exitDetailsCell(vantage) {
   return h('td', { class: 'detail-cell' }, ...lines.map((line) => h('div', {}, line)));
 }
 
+// Where a DNS server itself is (its own public location/ISP, from ip-api.com) — distinct from the
+// "network owner" shown per-answer, which is the IP a server *returned*, not the server's own address.
+function targetLocationCell(target) {
+  if (target.error) return h('td', { class: 'detail-cell muted' }, '—');
+  if (target.geo === undefined) return h('td', { class: 'detail-cell muted' }, 'checking…');
+  if (!target.geo) return h('td', { class: 'detail-cell muted' }, target.geoError ? `lookup failed: ${target.geoError}` : 'unavailable');
+  return h('td', { class: 'detail-cell' }, ...(geoLine(target.geo) ?? []).map((line) => h('div', {}, line)));
+}
+
 function renderProxySummary(run) {
   const working = run.vantages.filter((v) => v.state === 'ok').length;
   const checking = run.vantages.some((v) => v.state === 'checking');
@@ -798,9 +818,10 @@ function renderDnsSummary(run) {
       h('td', { class: 'ttl' }, target.error ? '—' : `${stat.answered} of ${stat.done}`),
       h('td', { class: 'ttl' }, average),
       h('td', {}, problems ? h('span', { class: 'fail' }, problems) : h('span', { class: 'muted' }, '—')),
+      targetLocationCell(target),
     ));
   }
-  const headings = ['DNS server', 'Answered', 'Avg time', 'Problems'];
+  const headings = ['DNS server', 'Answered', 'Avg time', 'Problems', 'Location'];
   const table = h('table', {},
     h('thead', {}, h('tr', {}, ...headings.map((text) => h('th', {}, text)))),
     body,
@@ -1381,6 +1402,11 @@ async function checkConnection() {
       };
     } else if (trace && (isIPv4(trace.ip ?? '') || isIPv6(trace.ip ?? ''))) {
       state.view = { source: 'Cloudflare', ip: trace.ip, headers: {}, countryCode: trace.loc, warp: trace.warp === 'on' || trace.gateway === 'on' };
+    } else if (site?.local && site.direct?.ip) {
+      // Local mode falls back to this: the browser's own Cloudflare request can be blocked by an ad
+      // blocker or browser privacy shield, or just fail on a flaky connection, even though the local
+      // server's own check (which also tries icanhazip.com, not just Cloudflare) already succeeded.
+      state.view = { source: 'the local server', ip: site.direct.ip, headers: {}, countryCode: site.direct.country };
     }
     // Reverse DNS and the network owner can be looked up as soon as the address is known.
     if (state.view && detailsFor !== state.view.ip) {

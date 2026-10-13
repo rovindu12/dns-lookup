@@ -76,7 +76,8 @@ const DEFAULT_PORTS = { 'http:': 80, 'https:': 443, 'socks5:': 1080, 'socks5h:':
 
 // Accepts scheme://user:pass@host:port, user:pass@host:port, host:port and host:port:user:pass.
 function parseProxy(line) {
-  let text = line.trim();
+  const original = line.trim();
+  let text = original;
   const colonForm = text.match(/^([^:@/\s]+):(\d{1,5}):([^:\s]+):(\S+)$/);
   if (colonForm) {
     const [, host, port, user, pass] = colonForm;
@@ -112,9 +113,11 @@ function parseProxy(line) {
   }
 
   const scheme = url.protocol.startsWith('socks') ? 'socks5' : url.protocol.slice(0, -1);
-  // The label is what the UI and exports show, so it never contains credentials.
-  const label = `${scheme}://${net.isIPv6(host) ? `[${host}]` : host}:${port}`;
-  return { scheme, host, port, user, pass, label };
+  // The label is what the UI and exports show: exactly what was typed, so proxies that are otherwise
+  // identical (same host:port, different session in the username) stay tellable apart and match what
+  // was pasted in. This includes the password: it is never sent anywhere but this proxy itself and the
+  // export file this computer writes, so there is nothing gained by hiding it from the person who typed it.
+  return { scheme, host, port, user, pass, label: original };
 }
 
 // Accepts 8.8.8.8, 8.8.8.8:5353, 2001:4860:4860::8888 and [2001:4860:4860::8888]:53, each optionally
@@ -424,6 +427,16 @@ async function withRetries(task, attempts = 3) {
   throw failure;
 }
 
+// bash.ws's own country/ASN data is enough to tell servers apart, but not where they are: add the same
+// public geolocation (city, region, ISP) each exit IP gets, so a DNS server shows the same kind of detail.
+// Best-effort per server — one that fails or is rate-limited just keeps its bash.ws-only country/org.
+async function enrichResolverGeo(servers) {
+  await Promise.all(servers.map((server) => geoLookup(server.ip).then((geo) => {
+    if (geo) Object.assign(server, { city: geo.city, region: geo.region, isp: geo.isp });
+  }).catch(() => {})));
+  return servers;
+}
+
 // Finds the DNS servers a proxy (or, with no proxy, this computer) uses. A proxy resolves host names itself,
 // so asking it to connect to names only the test service knows makes its DNS servers contact that service,
 // which lists who asked. Whether the connection then succeeds does not matter, only that the name is looked up.
@@ -605,6 +618,7 @@ async function processVantage(vantage, p, targets, hosts, emit, isClosed, wantRe
   // The proxy answers, so find its DNS servers now; this runs alongside the lookups below and is awaited at the end.
   const resolversTask = wantResolvers && vantage.proxy
     ? findResolvers(vantage.proxy)
+      .then((servers) => enrichResolverGeo(servers))
       .then((servers) => emit({ event: 'resolvers', p, ok: true, servers }))
       .catch((err) => emit({ event: 'resolvers', p, ok: false, error: describeError(err) }))
     : Promise.resolve();
@@ -750,6 +764,7 @@ async function handleLookup(req, res) {
   const checkResolvers = wantResolvers === true && proxies.length > 0;
   const baseline = checkResolvers
     ? findResolvers(null)
+      .then((servers) => enrichResolverGeo(servers))
       .then((servers) => emit({ event: 'baseline', ok: true, servers }))
       .catch((err) => emit({ event: 'baseline', ok: false, error: describeError(err) }))
     : Promise.resolve();
@@ -760,9 +775,15 @@ async function handleLookup(req, res) {
       .then((direct) => emit({ event: 'directinfo', ok: Boolean(direct), ...direct }))
       .catch((err) => emit({ event: 'directinfo', ok: false, error: describeError(err) }))
     : Promise.resolve();
+  // Each DNS server's own location/ISP (it is a public IP already known from the box, not sent
+  // anything), so the summary table can show where a server actually is, not just its address.
+  const targetGeoTasks = targets.map((target, t) => (target.error || target.kind !== 'dns' ? Promise.resolve() :
+    geoLookup(target.host)
+      .then((geo) => emit({ event: 'targetgeo', t, ok: true, geo }))
+      .catch((err) => emit({ event: 'targetgeo', t, ok: false, error: describeError(err) }))));
   await runPool(runnable, PROXY_CONCURRENCY, ({ vantage, p }) =>
     processVantage(vantage, p, targets, lowered, emit, () => closed, checkResolvers && p < MAX_RESOLVER_CHECKS));
-  await Promise.all([baseline, directTask]);
+  await Promise.all([baseline, directTask, ...targetGeoTasks]);
   emit({ event: 'done' });
   res.end();
 }

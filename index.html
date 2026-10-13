@@ -161,8 +161,10 @@
       IP details are two more DNS lookups per address to that resolver: reverse DNS, and the network owner from Team
       Cymru's IP-to-ASN mapping (the prefix's registry country, not a physical location).<span data-local-only hidden>
       DNS servers you list are queried by your local server directly, and proxies carry those queries or the resolver's
-      from their own network, so answers reflect that location. Proxy credentials stay on your machine and are never
-      shown or exported. To find a proxy's DNS servers, your local server makes each proxy look up random test names
+      from their own network, so answers reflect that location. A proxy is shown in the table and exports exactly as
+      typed, including its username and password, so proxies that share a host:port (different sessions of the same
+      provider, say) stay tellable apart — this never leaves your machine except to the proxy itself and the export
+      file this computer writes, so keep that file as carefully as you'd keep the proxy list itself. To find a proxy's DNS servers, your local server makes each proxy look up random test names
       and asks the public test service bash.ws which DNS servers asked; bash.ws never sees your sites. A proxy's exit
       IP is also looked up at ip-api.com (location, ISP, usage type) and in the RDAP WHOIS system (registry, network
       name and range) — both public lookups of an address already known from the proxy, not sent through it.</span><span data-hosted-only hidden>
